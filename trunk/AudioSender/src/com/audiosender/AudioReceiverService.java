@@ -28,11 +28,11 @@ public class AudioReceiverService  extends Service{
 		 	PrintStream os;
 		 	static DatagramSocket socket;
 		 	AudioTrack speaker;//Audio Configuration. 
-		 	int Ratesample = 0;      //How much will be ideal?
-		 	int Configchannel = 0;    
-		 	int Formataudio = 0;       
+		 	int Ratesample = 8000;      //How much will be ideal?
+		 	int Configchannel = AudioFormat.CHANNEL_IN_MONO;    
+		 	int Formataudio = AudioFormat.ENCODING_PCM_8BIT;       
 
-		    int BufSizemin	=	0;
+		    int BufSizemin	=	600;
 
 		    AudioRecord recordplayer=null;
 		    private boolean status = true;
@@ -91,11 +91,11 @@ public class AudioReceiverService  extends Service{
 	                    Log.d("VR", "Socket Created");
 
 	                    findAudioRecord();
-	                    Log.d("Recorder", "Audio recorder initialised at " + recordplayer.getSampleRate());
+	                  
+	                    Log.d("Recorder", "Audio recorder initialised at " + speaker.getSampleRate());
 	    				 byte[] buffer = new byte[BufSizemin];
 
-	    	                speaker = new AudioTrack(AudioManager.STREAM_MUSIC,Ratesample,Configchannel,Formataudio,BufSizemin,AudioTrack.MODE_STREAM);
-
+	    	              
 	    	                speaker.play();
 
 	    	                while(status == true) {
@@ -148,8 +148,8 @@ public class AudioReceiverService  extends Service{
 	   	                   Formataudio = audioFormat; 
 	   	                    if (BufSizemin != AudioRecord.ERROR_BAD_VALUE) {
 	   	                        // check if we can instantiate and have a success
-	   	                        recordplayer = new AudioRecord(AudioSource.DEFAULT, rate, channelConfig, audioFormat, BufSizemin);
-	   	                        Log.d("VS", "Recorder initialized");
+	   	                     speaker = new AudioTrack(AudioManager.STREAM_MUSIC,Ratesample,Configchannel,Formataudio,BufSizemin,AudioTrack.MODE_STREAM);
+	   	                     	Log.d("VS", "Recorder initialized");
 	   	                        
 	   	                        if (recordplayer.getState() == AudioRecord.STATE_INITIALIZED)
 	   	                            break;
