@@ -1,28 +1,11 @@
 package com.ptt;
-
-import android.app.Activity;
+import android.app.*;
 import android.os.Bundle;
-
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.*;
 import java.util.*;
-
 import org.apache.http.conn.util.InetAddressUtils;
-
-
-import android.app.Activity;
-import android.content.Context;
-import android.content.Intent;
+import android.content.*;
 import android.media.*;
 import android.media.MediaRecorder.AudioSource;
 import android.net.DhcpInfo;
@@ -35,55 +18,138 @@ import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 public class PTTActivity extends Activity {
-	public static String SERVERIP = "192.168.2.112";
-private EditText target;
+public static String SERVERIP = "";
 private TextView streamingLabel;
 private Button startButton,stopButton;
-
 public byte[] buffer;
-public static DatagramSocket socket;
-private int port=50005;         //which port??
+private int port=50005;
 AudioRecord recorder=null;
 private WifiManager mWifi;
-
-//Audio Configuration. 
 int sampleRate = 8000;      //How much will be ideal?
 int channelConfig = AudioFormat.CHANNEL_CONFIGURATION_MONO;    
 int audioFormat = AudioFormat.ENCODING_PCM_16BIT;       
 int minBufSize =0;
 AudioTrack speaker;//Audio Configuration. 
-	int Ratesample = 8000;      //How much will be ideal?
-	int Configchannel = AudioFormat.CHANNEL_IN_MONO;    
-	int Formataudio = AudioFormat.ENCODING_PCM_8BIT;       
+int Ratesample = 8000;      //How much will be ideal?
+int Configchannel = AudioFormat.CHANNEL_IN_MONO;    
+int Formataudio = AudioFormat.ENCODING_PCM_8BIT;       
 private boolean status = true;
+boolean connected=true;
 int BufSizemin	=	600;
 DatagramSocket socketR;
+DatagramSocket sendSocket;
 AudioRecord recordplayer=null;
+DatagramSocket socketM4;
+DatagramSocket socketM3;
+Thread fst3 ;
+Thread fst2 ;
+Socket clientTcpSocket;
 byte[] sendData;
 private Handler handler = new Handler();
-
 private ServerSocket serverSocket;
+Socket initialsocket;
 	DatagramSocket socketB;
 	public static final int SERVERPORT = 8080;
+	private Spinner SpinnerIp;
+	private ArrayAdapter<CharSequence> AdapterIp; 
 @Override
 public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.main);
     SERVERIP = getLocalIpAddress();
-    target = (EditText) findViewById (R.id.target_IP);
     streamingLabel = (TextView) findViewById(R.id.streaming_label);
     startButton = (Button) findViewById (R.id.start_button);
     stopButton = (Button) findViewById (R.id.stop_button);
 
     streamingLabel.setText("Press Start! to begin");
-
+    SpinnerIp = (Spinner) findViewById(R.id.spinner1);
+    AdapterIp = new ArrayAdapter<CharSequence>(this,android.R.layout.simple_spinner_item);
+    AdapterIp.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    SpinnerIp.setAdapter(AdapterIp); 
+    SpinnerIp.setOnItemSelectedListener(new IpOnItemSelectedListener());
+    
     startButton.setOnClickListener (startListener);
     stopButton.setOnClickListener (stopListener);
+    stopButton.setVisibility(-1);
     WifiManager wm = (WifiManager)getSystemService(Context.WIFI_SERVICE); 
     WifiManager.MulticastLock multicastLock = wm.createMulticastLock("mydebuginfo"); 
     multicastLock.acquire();
     Thread fst = new Thread(new ClientThread());
     fst.start();
+    fst2 = new Thread(new ServerThread());
+    fst2.start();
+}
+public class openSocket implements Runnable {
+
+    public void run() {
+        try {
+            InetAddress serverAddr = InetAddress.getByName((String) SpinnerIp.getSelectedItem());
+            Log.d("ClientActivity", "C: Connecting...");
+            initialsocket = new Socket(serverAddr, 8080);
+            connected = true;
+            while (connected) {
+                try {
+                    Log.d("ClientActivity", "C: Sending command.");
+                    final PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(initialsocket
+                                .getOutputStream())), true);
+                        // where you issue the commands
+                   String msg=SERVERIP;
+
+                   out.println(msg);
+                   BufferedReader inFromClient =
+                       new BufferedReader(new InputStreamReader(initialsocket.getInputStream()));
+                  String line="";
+                   while ((line = inFromClient.readLine()) != null) {
+                	   final String msgRec	=	line;
+                       
+                       handler.post(new Runnable() {
+                           public void run() {
+                        	   if(msgRec.startsWith("1")){
+                            	   streamingLabel.setText(msgRec);
+                            	   stopButton.setVisibility(-1);
+                              	 startButton.setVisibility(-1);
+                            	   try {
+                   					startReceiving((String) SpinnerIp.getSelectedItem());
+                   				} catch (UnknownHostException e) {
+                   					// TODO Auto-generated catch block
+                   					e.printStackTrace();
+                   				}
+                           		sendVoice((String) SpinnerIp.getSelectedItem());
+                               }
+                               else{
+                            	 streamingLabel.setText(msgRec);
+                            	 recorder.release();
+                                 speaker.release();
+                                 sendSocket.close();
+                                 socketR.close();
+                          		 stopButton.setVisibility(-1);
+                              	 startButton.setVisibility(1);	
+                              	 connected = false;
+                              	 status=false;
+                              	try {
+									initialsocket.close();
+								} catch (IOException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
+                        	}
+                           }
+                       });
+                         
+                   }
+                  
+                        
+                        Log.d("ClientActivity", "C: Sent.");
+                } catch (Exception e) {
+                    Log.e("ClientActivity", "S: Error", e);
+                }
+            }
+            Log.d("ClientActivity", "C: Closed.");
+        } catch (Exception e) {
+            Log.e("ClientActivity", "C: Error", e);
+            connected = false;
+        }
+    }
 }
 
 public class ServerThread implements Runnable {
@@ -97,38 +163,46 @@ public class ServerThread implements Runnable {
                         streamingLabel.setText("Listening on IP1: " + SERVERIP);
                     }
                 });
+
+         	  
                 serverSocket = new ServerSocket(SERVERPORT);
                 while (true) {
                     // listen for incoming clients
-                    Socket client = serverSocket.accept();
-                    
-                    handler.post(new Runnable() {
-                        
-                        public void run() {
-                            streamingLabel.setText("Connected.");
-                        }
-                    });
 
+                    clientTcpSocket = serverSocket.accept();
                    
-                        BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-                        String line = null;
-                        while ((line = in.readLine()) != null) {
-                        	
-                            final String mm=line;
+                        BufferedReader in = new BufferedReader(new InputStreamReader(clientTcpSocket.getInputStream()));
+                        String line = in.readLine();
+                        final PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientTcpSocket
+                                .getOutputStream())), true);
+                       final String mm=line;
                             Log.d("ServerActivity", line);
                             handler.post(new Runnable() {
                                 public void run() {
-                                	streamingLabel.setText(mm);
+                               	 AlertDialog alertDialog = new AlertDialog.Builder(PTTActivity.this).create();
+                                 alertDialog.setTitle("Incoming call");
+                                 alertDialog.setMessage(mm+" is calling Answer?");
+                                 alertDialog.setButton("OK", new DialogInterface.OnClickListener() {
+                                	 
+                                     
+                                     public void onClick(DialogInterface dialog, int which) {
+                                    	 out.println(1);
+                                    	 stopButton.setVisibility(1);
+                                    	 startButton.setVisibility(-1);
+                                    		try {
+												startReceiving(mm);
+											} catch (UnknownHostException e) {
+												// TODO Auto-generated catch block
+												e.printStackTrace();
+											}
+                                    		sendVoice(mm);
+                                
+                                   } }); 
+                                 alertDialog.show();
+                                
                                 }
                             });
-                                    // do whatever you want to the front end
-                                    // this is where you can be creative
-                                	
-                              
-                        }
-                        break;
-                     
-                }
+                           }
             } else {
                 handler.post(new Runnable() {
                    
@@ -153,9 +227,28 @@ public class ServerThread implements Runnable {
 private final OnClickListener stopListener = new OnClickListener() {
 
     public void onClick(View arg0) {
-                status = false;
+
+        try {       
+    	status = false;
+    	connected=false;
+    	 stopButton.setVisibility(-1);
+      	 startButton.setVisibility(1);
+        PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientTcpSocket
+                .getOutputStream())), true);
+        out.println(2);
+		//clientTcpSocket.close();
                 recorder.release();
+                speaker.release();
+                sendSocket.close();
+                socketR.close();
+                status=false;
+                connected=false;
+                } catch (IOException e) {
+					e.printStackTrace();
+					Log.e("VS", "error closing");
+				}
                 Log.d("VS","Recorder released");
+                Log.d("VS","all closed");
     }
 
 };
@@ -164,38 +257,43 @@ private final OnClickListener startListener = new OnClickListener() {
 
     public void onClick(View arg0) {
                 status = true;
-                startStreaming();           
+                startStreaming();    
+                
     }
 
 };
 
 public void startStreaming() {
-	startReceiving();
-    Thread streamThread = new Thread(new Runnable() {
+	fst3 = new Thread(new openSocket());
+    fst3.start();
+    
+ }
+public void sendVoice(final String dst){
+	Thread streamThread = new Thread(new Runnable() {
 
         public void run() {
         	try {
-        	DatagramSocket socket = new DatagramSocket();
+        	sendSocket = new DatagramSocket();
             Log.d("VS", "Socket Created");
             
            findAudioRecord();
                 Log.d("VS","Buffer created of size " + minBufSize);
                 DatagramPacket packet;
-                final InetAddress destination = InetAddress.getByName(target.getText().toString());
+                final InetAddress destination = InetAddress.getByName(dst);
                 Log.d("VS", "Address retrieved");
                 recorder.startRecording();
-                buffer	=	new byte[minBufSize];
+                buffer	=	new byte[512];
                 while(status == true) {
                 	//reading data from MIC into buffer
                     minBufSize = recorder.read(buffer, 0, buffer.length);
                     //putting buffer in the packet
                     packet = new DatagramPacket (buffer,buffer.length,destination,port);
-                    socket.send(packet);
+                    sendSocket.send(packet);
                     }
         	} catch(UnknownHostException e) {
                 Log.e("VS", "UnknownHostException");
             } catch (IOException e) {
-                Log.e("VS", "IOException");
+                Log.e("VS", "IOException1");
                 e.printStackTrace();
             } 
 
@@ -204,41 +302,39 @@ public void startStreaming() {
 
     });
     streamThread.start();
- }
-public void startReceiving() {
-   
+}
+public void startReceiving(final String dst) throws UnknownHostException {
+	final InetAddress destination = InetAddress.getByName(dst);
     Thread receiveThread = new Thread (new Runnable() {
 
         public void run() {
 
             try {
-                DatagramSocket socketR = new DatagramSocket(50005);
+                socketR = new DatagramSocket(50005);
                 Log.d("VR", "Socket Created");
 
                 startSpeaker();
                 Log.d("Recorder", "Audio recorder initialised at " + speaker.getSampleRate());
-				 byte[] buffer = new byte[BufSizemin];
+				 byte[] buff = new byte[512];
 
 	                   speaker.play();
 
 	                while(status == true) {
 	                    try {
-
-
-	                        DatagramPacket packet = new DatagramPacket(buffer,buffer.length);
+	                    	DatagramPacket packet = new DatagramPacket(buff,buff.length);
 	                        socketR.receive(packet);
 	                        Log.d("VR", "Packet Received");
 
 	                        //reading content from packet
-	                        buffer=packet.getData();
+	                        buff=packet.getData();
 	                        Log.d("VR", "Packet data read into buffer");
 
 	                        //sending data to the Audiotrack obj i.e. speaker
-	                        speaker.write(buffer, 0, BufSizemin);
+	                        speaker.write(buff, 0, buff.length);
 	                        Log.d("VR", "Writing buffer content to speaker");
 
 	                    } catch(IOException e) {
-	                        Log.e("VR","IOException");
+	                        Log.e("VR","IOException2");
 	                    }
                 //minimum buffer size. need to be careful. might cause problems. try setting manually if any problems faced
                 //int minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
@@ -256,16 +352,17 @@ public void startReceiving() {
 
     });
     receiveThread.start();
+    
 }
 public void findAudioRecord() {
- int[] mSampleRates = new int[] { 44100, 11025, 22050, 8000 };
+ int[] mSampleRates = new int[] { 44100, 8000 };
     for (int rate : mSampleRates) {
         for (short audioFormat : new short[] { AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_16BIT }) {
             for (short channelConfig : new short[] { AudioFormat.CHANNEL_IN_MONO, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.CHANNEL_CONFIGURATION_DEFAULT}) {
                 try {
                     Log.d("recorder", "Attempting rate " + rate + "Hz, bits: " + audioFormat + ", channel: "
                             + channelConfig);
-                   minBufSize = AudioRecord.getMinBufferSize(rate, channelConfig, audioFormat);
+                   minBufSize = AudioRecord.getMinBufferSize(rate, channelConfig, audioFormat)*2;
                    sampleRate = rate;      //How much will be ideal?
                    channelConfig = channelConfig;    
                    audioFormat = audioFormat; 
@@ -288,18 +385,26 @@ public void startSpeaker() {
 	 int[] mSampleRates = new int[] { 44100, 11025, 22050, 8000 };
 	    for (int rate : mSampleRates) {
 	        for (short audioFormat : new short[] { AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_16BIT }) {
-	            for (short channelConfig : new short[] { AudioFormat.CHANNEL_IN_MONO, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.CHANNEL_CONFIGURATION_DEFAULT}) {
+	            for (short channelConfig : new short[] { AudioFormat.CHANNEL_OUT_MONO, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.CHANNEL_CONFIGURATION_DEFAULT}) {
 	                try {
 	                    Log.d("recorder", "Attempting rate " + rate + "Hz, bits: " + audioFormat + ", channel: "
 	                            + channelConfig);
-	                   BufSizemin = AudioRecord.getMinBufferSize(rate, channelConfig, audioFormat);
+	                   BufSizemin = AudioTrack.getMinBufferSize(rate, channelConfig, audioFormat)*2;
 	                   Ratesample = rate;      //How much will be ideal?
 	                   Configchannel = channelConfig;    
 	                   Formataudio = audioFormat; 
 	                    if (BufSizemin != AudioTrack.ERROR_BAD_VALUE) {
 	                        // check if we can instantiate and have a success
-	                     speaker = new AudioTrack(AudioManager.STREAM_MUSIC,Ratesample,Configchannel,Formataudio,BufSizemin,AudioTrack.MODE_STREAM);
-	                     	Log.d("VS", "Recorder initialized");
+	                     speaker = new AudioTrack(AudioManager.STREAM_VOICE_CALL,Ratesample,Configchannel,Formataudio,BufSizemin,AudioTrack.MODE_STREAM);
+	                    AudioManager audioManager;  
+	                    audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE); 
+	                     int currAudioMode = audioManager.getMode(); 
+	                     audioManager.setMode(AudioManager.STREAM_VOICE_CALL); 
+	                     audioManager.setRouting(AudioManager.MODE_NORMAL,1,
+	                             AudioManager.STREAM_VOICE_CALL);
+
+	                     audioManager.setSpeakerphoneOn(false); 	
+	                     Log.d("VS", "Recorder initialized");
 	                        
 	                        if (speaker.getState() == AudioTrack.STATE_INITIALIZED)
 	                            break;
@@ -310,8 +415,8 @@ public void startSpeaker() {
 	            }
 	        }
 	    }
-  	    
-  	}
+ 	    
+ 	}
 // gets the ip address of your phone's network
 private String getLocalIpAddress() {
 	try {
@@ -352,6 +457,8 @@ private InetAddress getBroadcastAddress() throws IOException {
     return InetAddress.getByAddress(quads);
   }
 
+
+
 public class ClientThread implements Runnable {
 
 	public void run() {
@@ -359,14 +466,14 @@ public class ClientThread implements Runnable {
 			
 			String msg=getLocalIpAddress();
 
-			String port = "51005";
+			String port = "1025";
 			final Vector v = new Vector();
 			int pnum = Integer.parseInt(port);
-			DatagramSocket socketM4=new DatagramSocket(pnum);
+			socketM4=new DatagramSocket(pnum);
 			
 			while(true){
 			//For Received message
-				DatagramSocket socketM3 = new DatagramSocket();
+				socketM3 = new DatagramSocket();
 				socketM3.setBroadcast(true);
 				DatagramPacket packet = new DatagramPacket(msg.getBytes(), msg.length(),getBroadcastAddress(), pnum);
 				socketM3.send(packet);
@@ -379,7 +486,7 @@ public class ClientThread implements Runnable {
                 
                 public void run() {
                 	if(!v.contains(mm)){
-                	streamingLabel.append("\n"+ mm);
+                		AdapterIp.add(mm);
                 	v.add(mm);
                 	}
                 	
